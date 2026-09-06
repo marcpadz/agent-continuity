@@ -124,12 +124,22 @@ function mutateBoard(boardFile, fn) {
 // ── Core actions (shared by CLI and the serve HTTP API) ─────────────────────
 
 function nextKey(board) {
+  const prefix = keyPrefix(board);
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
   let max = 0;
   for (const c of board.cards) {
-    const m = /^TSK-(\d+)$/.exec(c.key || "");
+    const m = re.exec(c.key || "");
     if (m) max = Math.max(max, Number(m[1]));
   }
-  return `TSK-${max + 1}`;
+  return `${prefix}-${max + 1}`;
+}
+
+// Boards can override the ticket-key prefix (board.json `key_prefix`) so a
+// workspace whose product already uses `TSK-` keys (e.g. Dextop) can namespace
+// its development tickets (`DEV-`). Defaults to `TSK`.
+function keyPrefix(board) {
+  const p = (board.key_prefix || "TSK").trim().toUpperCase();
+  return /^[A-Z][A-Z0-9_]{0,7}$/.test(p) ? p : "TSK";
 }
 
 function findCard(board, keyOrId) {
@@ -162,6 +172,8 @@ const Actions = {
     }
     board.version = board.version || 1;
     board.workspace = board.workspace || path.basename(process.cwd());
+    if (args["key-prefix"] || args.key_prefix)
+      board.key_prefix = String(args["key-prefix"] || args.key_prefix).trim().toUpperCase();
     board.columns = DEFAULT_COLUMNS.slice();
     if (!Array.isArray(board.cards)) board.cards = [];
     return "Seeded board with columns: " + board.columns.join(", ");
@@ -174,6 +186,11 @@ const Actions = {
       cards = cards.filter(
         (c) => (c.assignee || "").toLowerCase() === args.assignee.toLowerCase()
       );
+    if (args.session) cards = cards.filter((c) => c.session_id === args.session);
+    if (args.mine) {
+      if (!args.session) throw new Error("--mine requires --session");
+      cards = cards.filter((c) => c.session_id === args.session);
+    }
     if (args.open) cards = cards.filter((c) => c.status !== "Done" && !c.archived_at);
     if (!args.json) {
       if (cards.length === 0) return "No tickets match.";
@@ -212,6 +229,7 @@ const Actions = {
       description: (args.description || "").trim(),
       status,
       assignee: (args.assignee || "").trim() || null,
+      session_id: (args.session || "").trim() || null,
       created_by: args.as || "agent",
       created_at: nowIso(),
       updated_at: nowIso(),
@@ -232,6 +250,7 @@ const Actions = {
     if (args.description !== undefined) card.description = args.description.trim();
     if (args.assignee !== undefined)
       card.assignee = args.assignee.trim() || null;
+    if (args.session !== undefined) card.session_id = args.session.trim() || null;
     if (args.status) card.status = resolveStatus(board, args.status);
     if (args.note) {
       card.comments = card.comments || [];

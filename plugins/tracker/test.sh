@@ -51,6 +51,18 @@ node .agents/tracker/tracker.js create --title b --as y >/dev/null &
 wait
 node -e 'const b=require("./.agents/tracker/board.json"); if(b.cards.length!==3) process.exit(1)' || fail "parallel creates lost (expected 3 = TSK-1 + two parallel)"
 
+echo "== key_prefix + session binding =="
+mkdir -p ws2/.agents/tracker
+cp .agents/tracker/tracker.js ws2/.agents/tracker/
+cd ws2
+node .agents/tracker/tracker.js seed --key-prefix dev | grep -q "Seeded board" || fail "seed with prefix"
+node .agents/tracker/tracker.js create --title "Session-bound work" --as agent --session ses_abc | grep -q "DEV-1" || fail "DEV- prefix sequencing"
+node .agents/tracker/tracker.js list --json --mine --session ses_abc | grep -q '"key": "DEV-1"' || fail "--mine session filter"
+node .agents/tracker/tracker.js list --json --session ses_other | grep -q "DEV-1" && fail "session filter leaked" || true
+node .agents/tracker/tracker.js update DEV-1 --session ses_new --json | grep -q '"session_id": "ses_new"' || fail "session restamp"
+cd ..
+node -e 'const b=require("./.agents/tracker/board.json"); if(b.cards[0].key !== "TSK-1") process.exit(1)' || fail "default prefix drifted"
+
 echo "== live server =="
 TRACKER_PORT=$PORT node .agents/tracker/tracker.js serve &
 SERVER_PID=$!

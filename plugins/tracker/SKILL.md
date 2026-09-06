@@ -67,7 +67,11 @@ serve [--port 4870] [--open]         live board server (root `./board` wraps thi
 ```
 
 Global flags: `--as <name>` (actor identity), `--json`, `TRACKER_BOARD=<path>`
-(override board location — useful in tests).
+(override board location — useful in tests). Board files may set
+`"key_prefix"` (e.g. `"DEV"`) to namespace ticket keys; `seed --key-prefix DEV`
+sets it. `--session <id>` stamps the ticket's `session_id` (create/update) or
+filters the list to it (`list --session <id> [--mine]`) — that is how a tool
+wrapper binds tickets to the calling agent's session.
 
 ## For users
 
