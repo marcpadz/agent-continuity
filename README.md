@@ -29,24 +29,62 @@ blind.
 
 ## What it creates
 
-All scaffolding lives inside a **single hidden folder** `.agent-continuity/`, so the
-project root stays clean — only the user-created project files and folders are visible:
+All scaffolding lives inside a **single hidden folder** `.agents/`, so the
+project root stays clean — only the user-created project files and folders are visible
+(plus the optional `board` launcher):
 
 ```
-.agent-continuity/
-  AGENTS.md          # the directive — read this first, every session
+AGENTS.md           # the directive — read this first, every session (project root)
+.agents/
   decisions/
     README.md        # decision index
   learnings/
     _index.md        # symptom lookup table
   playbooks/         # (empty — populate as needed)
   templates/         # (empty — populate as needed)
+  tracker/           # shared project board (tracker plugin — see below)
   .local/            # agent-private scratch (gitignored)
   .gitignore         # excludes .local/
+board               # root launcher: opens the live tracker board in the browser
 ```
 
 Hidden on macOS via dot-prefix + `chflags hidden`. To reveal:
-`chflags nohidden .agent-continuity`.
+`chflags nohidden .agents`.
+
+---
+
+## Plugins
+
+### `tracker` — the shared project board
+
+The tracker plugin adds a project-management layer that agents and users
+collaborate on:
+
+- **Every task is a ticket.** The thinking chain makes agents check the board at
+  task start (`node .agents/tracker/tracker.js list --open`), create a ticket when
+  none matches, keep its status and notes updated at every meaningful step, and
+  move it to `For Review` when done.
+- **Users get a live board in the browser.** The scaffold drops a `./board`
+  launcher in the project root:
+  ```sh
+  ./board            # starts the board server and opens http://127.0.0.1:4870
+  ```
+  Tickets agents create or move via the CLI appear in the open browser within a
+  second (file-watch + server-sent events). Drag cards between columns, click to
+  edit, comment, reassign — every user edit is immediately visible to agents.
+- **Zero dependencies.** One Node script (`tracker.js`) and one HTML file
+  (`board.html`), copied into `.agents/tracker/` at scaffold time. Node ≥ 18, no
+  `npm install`, no build step.
+- **Concurrent-safe.** All writes go through the script: atomic tmp+rename under
+  a stale-tolerant lockfile, so multiple agents can't corrupt or clobber the
+  board.
+
+The board file itself (`.agents/tracker/board.json`) is committed with the
+workspace — it is the project's durable task memory, exactly like the other
+stores.
+
+See [`plugins/tracker/SKILL.md`](plugins/tracker/SKILL.md) for the full agent
+contract and command surface.
 
 ---
 
@@ -85,8 +123,9 @@ Every session runs:
 
 1. Read `AGENTS.md` (glossary, current state, priorities).
 2. Load the matching playbook before governed work.
-3. Consult the store before acting (learnings index, decisions).
-4. Write back when done.
+3. Check the tracker — every task gets a ticket on the shared board, kept live.
+4. Consult the store before acting (learnings index, decisions).
+5. Write back when done.
 
 ---
 
@@ -95,11 +134,13 @@ Every session runs:
 | Path | Purpose |
 |---|---|
 | `SKILL.md` | The skill definition — bootstrap + maintenance instructions |
+| `plugins/tracker/` | The tracker plugin — shared board CLI, live board UI, agent contract, smoke tests |
 | `README.md` | This file |
 | `LICENSE` | MIT license |
 | `examples/AGENTS.md` | A ready-to-use `AGENTS.md` template |
 | `examples/decisions/README.md` | Decision index template |
 | `examples/learnings/_index.md` | Learnings index template |
+| `examples/tracker/board.json` | Seed board template |
 
 ---
 

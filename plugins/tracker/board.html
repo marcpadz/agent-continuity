@@ -1,0 +1,351 @@
+<!doctype html>
+<!-- agent-continuity tracker — live board. Served by `tracker.js serve`. No
+     build step, no dependencies: one HTML file, fetch + SSE + drag & drop. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tracker — agent-continuity</title>
+<style>
+  :root {
+    --bg: #101014; --surface: #17171d; --surface-2: #1e1e26; --border: #2a2a33;
+    --text: #e9e9ee; --text-2: #9d9daa; --text-3: #6c6c78;
+    --brand: #4d80f0; --brand-soft: rgba(77, 128, 240, 0.14);
+    --green: #3fb96a; --amber: #d9932c; --red: #d9564a; --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: rgba(16,16,20,0.92); backdrop-filter: blur(8px); z-index: 5;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  #live { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-3); }
+  #live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+  #live.on .dot { background: var(--green); box-shadow: 0 0 6px rgba(63,185,106,0.7); }
+  header input[type="search"] {
+    margin-left: auto; width: 240px; padding: 6px 10px; font-size: 12.5px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; outline: none;
+  }
+  header input[type="search"]:focus { border-color: var(--brand); }
+  .hint { font-size: 11.5px; color: var(--text-3); }
+  main { display: flex; gap: 14px; padding: 18px 20px 40px; overflow-x: auto; min-height: calc(100vh - 60px); align-items: flex-start; }
+  .col { flex: 1 1 220px; min-width: 220px; max-width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+  .col.dragover { border-color: var(--brand); background: var(--brand-soft); }
+  .col-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
+  .col-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .col-head h2 { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-2); margin: 0; flex: 1; }
+  .col-head .count { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .card {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 10px; margin-bottom: 8px; cursor: grab; transition: border-color 0.12s, transform 0.08s;
+  }
+  .card:hover { border-color: var(--brand); }
+  .card.dragging { opacity: 0.45; }
+  .card .row1 { display: flex; align-items: center; gap: 7px; }
+  .card .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .card .key { font: 11px ui-monospace, "SF Mono", Menlo, monospace; color: var(--text-3); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  .card .title { font-size: 13px; font-weight: 500; margin-top: 6px; word-break: break-word; }
+  .card .meta { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11px; color: var(--text-3); }
+  .avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--brand); color: #fff; font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .addbtn {
+    width: 100%; padding: 7px; border-radius: 7px; border: 1.5px dashed var(--border);
+    background: none; color: var(--text-3); font-size: 12px; cursor: pointer;
+  }
+  .addbtn:hover { color: var(--brand); border-color: var(--brand); }
+  /* drawer */
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 8; }
+  #overlay.show { opacity: 1; pointer-events: auto; }
+  #drawer {
+    position: fixed; top: 0; right: -480px; width: 460px; max-width: 94vw; height: 100vh; z-index: 9;
+    background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column;
+    transition: right 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  #drawer.show { right: 0; }
+  #drawer .head { padding: 16px 18px 10px; border-bottom: 1px solid var(--border); }
+  #drawer .head .keyrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #title-input { width: 100%; background: none; border: none; outline: none; color: var(--text); font-size: 16px; font-weight: 600; }
+  #drawer .body { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  #drawer label { display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); margin: 12px 0 5px; }
+  #drawer textarea, #drawer select, #drawer input[type="text"] {
+    width: 100%; background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+  }
+  #drawer textarea:focus, #drawer select:focus, #drawer input:focus { border-color: var(--brand); }
+  .comment { border-left: 2px solid var(--border); padding: 4px 0 4px 10px; margin-bottom: 10px; font-size: 12.5px; }
+  .comment .who { color: var(--text-2); font-weight: 600; }
+  .comment .when { color: var(--text-3); font-size: 11px; margin-left: 6px; }
+  #drawer .foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+  button.primary { background: var(--brand); color: #fff; border: none; border-radius: 7px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.ghost { background: none; color: var(--text-2); border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  button.ghost:hover { color: var(--text); border-color: var(--text-3); }
+  button.danger { background: none; color: var(--amber); border: 1px solid transparent; border-radius: 7px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  button.danger:hover { border-color: var(--amber); }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(70px); background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 9px 16px; border-radius: 9px; font-size: 12.5px; transition: transform 0.2s; z-index: 20; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.err { color: #ff9d94; border-color: rgba(217,86,74,0.5); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tracker</h1>
+  <span id="wsname" class="hint"></span>
+  <span id="live" title="live updates"><span class="dot"></span><span id="live-label">connecting…</span></span>
+  <input id="filter" type="search" placeholder="Filter by title, key, assignee…" />
+  <span class="hint">drag cards between columns · agents update this live</span>
+</header>
+<main id="board"></main>
+
+<div id="overlay"></div>
+<div id="drawer">
+  <div class="head">
+    <div class="keyrow">
+      <span class="key" id="d-key"></span>
+      <select id="d-status" style="width:auto"></select>
+      <span style="flex:1"></span>
+      <button class="danger" id="d-delete">Delete</button>
+    </div>
+    <input id="title-input" placeholder="Ticket title" />
+  </div>
+  <div class="body">
+    <label>Description</label>
+    <textarea id="d-desc" rows="4" placeholder="Context, acceptance criteria, links…"></textarea>
+    <label>Assignee</label>
+    <input id="d-assignee" type="text" placeholder="agent or user name" />
+    <label>Activity</label>
+    <div id="d-comments"></div>
+    <textarea id="d-newcomment" rows="2" placeholder="Add a note… (⌘↵ to post)"></textarea>
+  </div>
+  <div class="foot">
+    <button class="primary" id="d-save">Save</button>
+    <button class="ghost" id="d-close">Close</button>
+    <span style="flex:1"></span>
+    <span class="hint" id="d-updated"></span>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { board: null, filter: "", open: null, es: null };
+const DOT = {
+  "idea": "#8a8a96", "not started": "#6c6c78", "in progress": "#4d80f0",
+  "for review": "#d9932c", "done": "#3fb96a",
+};
+const dotFor = (status) => DOT[(status || "").toLowerCase()] || "#6c6c78";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function fetchBoard() {
+  const res = await fetch("/api/board");
+  state.board = await res.json();
+  render();
+}
+
+function visible(card) {
+  if (!state.filter) return true;
+  const f = state.filter.toLowerCase();
+  return (
+    card.title.toLowerCase().includes(f) ||
+    (card.key || "").toLowerCase().includes(f) ||
+    (card.assignee || "").toLowerCase().includes(f)
+  );
+}
+
+function render() {
+  const b = state.board;
+  if (!b) return;
+  $("wsname").textContent = b.workspace || "";
+  const board = $("board");
+  board.innerHTML = "";
+  for (const col of b.columns) {
+    const cards = b.cards.filter((c) => c.status === col && visible(c) && !c.archived_at);
+    const archived = b.cards.filter((c) => c.status === col && c.archived_at).length;
+    const colEl = document.createElement("section");
+    colEl.className = "col";
+    colEl.dataset.status = col;
+    colEl.innerHTML = `
+      <div class="col-head">
+        <span class="dot" style="background:${dotFor(col)}"></span>
+        <h2>${esc(col)}</h2>
+        <span class="count">${cards.length}${archived ? ` +${archived} archived` : ""}</span>
+      </div>`;
+    for (const card of cards) colEl.appendChild(cardEl(card));
+    const add = document.createElement("button");
+    add.className = "addbtn";
+    add.textContent = "+ New ticket";
+    add.onclick = () => createIn(col);
+    colEl.appendChild(add);
+    board.appendChild(colEl);
+  }
+}
+
+function cardEl(card) {
+  const el = document.createElement("article");
+  el.className = "card";
+  el.draggable = true;
+  el.dataset.key = card.key;
+  const who = card.assignee
+    ? `<span class="avatar" title="assignee: ${esc(card.assignee)}">${esc(card.assignee.slice(0, 2).toUpperCase())}</span>`
+    : "";
+  const notes = (card.comments || []).length;
+  el.innerHTML = `
+    <div class="row1"><span class="dot" style="background:${dotFor(card.status)}"></span>
+      <span class="key">${esc(card.key)}</span></div>
+    <div class="title">${esc(card.title)}</div>
+    <div class="meta">${who}<span>${notes ? notes + " note" + (notes > 1 ? "s" : "") : ""}</span>
+      <span style="margin-left:auto">${new Date(card.updated_at).toLocaleDateString()}</span></div>`;
+  el.onclick = () => openDrawer(card.key);
+  el.addEventListener("dragstart", (e) => {
+    e.dataTransfer.setData("text/plain", card.key);
+    el.classList.add("dragging");
+  });
+  el.addEventListener("dragend", () => el.classList.remove("dragging"));
+  return el;
+}
+
+// drag & drop between columns
+document.addEventListener("dragover", (e) => {
+  const col = e.target.closest(".col");
+  if (!col) return;
+  e.preventDefault();
+  col.classList.add("dragover");
+});
+document.addEventListener("dragleave", (e) => {
+  const col = e.target.closest(".col");
+  if (col && !col.contains(e.relatedTarget)) col.classList.remove("dragover");
+});
+document.addEventListener("drop", async (e) => {
+  const col = e.target.closest(".col");
+  if (!col) return;
+  e.preventDefault();
+  col.classList.remove("dragover");
+  const key = e.dataTransfer.getData("text/plain");
+  if (!key) return;
+  const card = state.board.cards.find((c) => c.key === key);
+  if (!card || card.status === col.dataset.status) return;
+  await act({ action: "move", key, status: col.dataset.status });
+  toast(`${key} → ${col.dataset.status}`);
+});
+
+async function act(payload) {
+  const res = await fetch("/api/action", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ as: "user", ...payload }),
+  });
+  const out = await res.json();
+  if (!out.ok) toast(out.error || "action failed", true);
+  await fetchBoard();
+  return out;
+}
+
+async function createIn(col) {
+  const title = prompt(`New ticket in "${col}" — title:`);
+  if (!title || !title.trim()) return;
+  const out = await act({ action: "create", title: title.trim(), status: col });
+  if (out.ok && out.result?.card) openDrawer(out.result.card.key);
+}
+
+// ── drawer ──
+function openDrawer(key) {
+  const card = state.board.cards.find((c) => c.key === key);
+  if (!card) return;
+  state.open = key;
+  $("d-key").textContent = card.key;
+  $("title-input").value = card.title;
+  $("d-desc").value = card.description || "";
+  $("d-assignee").value = card.assignee || "";
+  $("d-updated").textContent = "updated " + new Date(card.updated_at).toLocaleString();
+  const sel = $("d-status");
+  sel.innerHTML = state.board.columns
+    .map((c) => `<option ${c === card.status ? "selected" : ""}>${esc(c)}</option>`)
+    .join("");
+  $("d-comments").innerHTML = (card.comments || [])
+    .map((cm) => `<div class="comment"><span class="who">${esc(cm.author)}</span><span class="when">${new Date(cm.at).toLocaleString()}</span><div>${esc(cm.body)}</div></div>`)
+    .join("") || `<div class="hint" style="padding:4px 0 10px">No activity yet.</div>`;
+  $("overlay").classList.add("show");
+  $("drawer").classList.add("show");
+}
+
+function closeDrawer() {
+  state.open = null;
+  $("overlay").classList.remove("show");
+  $("drawer").classList.remove("show");
+}
+
+async function saveDrawer() {
+  const key = state.open;
+  if (!key) return;
+  await act({
+    action: "update",
+    key,
+    title: $("title-input").value,
+    description: $("d-desc").value,
+    assignee: $("d-assignee").value,
+    status: $("d-status").value,
+  });
+  toast("Saved");
+}
+
+// ── live updates: SSE with poll fallback ──
+function connect() {
+  const es = new EventSource("/api/events");
+  state.es = es;
+  es.onopen = () => {
+    $("live").classList.add("on");
+    $("live-label").textContent = "live";
+  };
+  es.addEventListener("changed", () => fetchBoard());
+  es.onerror = () => {
+    $("live").classList.remove("on");
+    $("live-label").textContent = "reconnecting…";
+  };
+}
+setInterval(() => { if (state.board) fetchBoard(); }, 5000); // poll fallback
+
+// ── wiring ──
+$("filter").addEventListener("input", (e) => { state.filter = e.target.value.trim(); render(); });
+$("overlay").onclick = closeDrawer;
+$("d-close").onclick = closeDrawer;
+$("d-save").onclick = saveDrawer;
+$("d-status").onchange = saveDrawer;
+$("d-delete").onclick = async () => {
+  const key = state.open;
+  if (!key || !confirm(`Delete ${key}? This cannot be undone.`)) return;
+  await act({ action: "delete", key });
+  closeDrawer();
+  toast(`${key} deleted`);
+};
+$("d-newcomment").addEventListener("keydown", async (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    const body = e.target.value.trim();
+    if (!body) return;
+    await act({ action: "comment", key: state.open, body });
+    e.target.value = "";
+    toast("Note added");
+  }
+});
+$("title-input").addEventListener("keydown", (e) => { if (e.key === "Enter") saveDrawer(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+let toastTimer;
+function toast(msg, err) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "show" + (err ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = ""), 2600);
+}
+
+fetchBoard();
+connect();
+</script>
+</body>
+</html>
