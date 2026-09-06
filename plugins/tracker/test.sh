@@ -63,6 +63,19 @@ node .agents/tracker/tracker.js update DEV-1 --session ses_new --json | grep -q 
 cd ..
 node -e 'const b=require("./.agents/tracker/board.json"); if(b.cards[0].key !== "TSK-1") process.exit(1)' || fail "default prefix drifted"
 
+echo "== ensure (session floor) =="
+mkdir -p ws3/.agents/tracker
+cp .agents/tracker/tracker.js ws3/.agents/tracker/
+cd ws3
+node .agents/tracker/tracker.js seed >/dev/null
+node .agents/tracker/tracker.js ensure --session ses_run1 --title "First task" --json | grep -q '"created": true' || fail "ensure creates when missing"
+node .agents/tracker/tracker.js ensure --session ses_run1 --title "Different title" --json | grep -q '"created": false' || fail "ensure not idempotent"
+KEY1=$(node .agents/tracker/tracker.js ensure --session ses_run1 --json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).card.key))')
+[ "$KEY1" = "TSK-1" ] || fail "ensure returned $KEY1, expected TSK-1 (no duplicate)"
+node .agents/tracker/tracker.js move TSK-1 --status done >/dev/null
+node .agents/tracker/tracker.js ensure --session ses_run1 --json | grep -q '"created": true' || fail "ensure after Done should floor a new ticket"
+cd ..
+
 echo "== live server =="
 TRACKER_PORT=$PORT node .agents/tracker/tracker.js serve &
 SERVER_PID=$!

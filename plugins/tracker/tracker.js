@@ -218,6 +218,27 @@ const Actions = {
     return lines.join("\n");
   },
 
+  // Floor ticket (idempotent): return the session's open ticket, creating a
+  // structural one when none exists — the hook a runtime turn-start uses to
+  // GUARANTEE every session has a ticket, even if the model never calls the
+  // tool. Mirrors the product tracker's ensure_ticket_for_turn (ADR 0057).
+  ensure(board, args) {
+    if (!args.session) throw new Error("ensure requires --session");
+    const existing = board.cards.find(
+      (c) => c.session_id === args.session && !c.archived_at && c.status !== "Done"
+    );
+    if (existing) {
+      return args.json
+        ? { card: existing, created: false }
+        : `${existing.key}: ${existing.title} [${existing.status}]`;
+    }
+    const title =
+      (args.title || "").trim() ||
+      `Session task (${String(args.session).trim().split(":").pop() || "unknown"})`;
+    const created = Actions.create(board, { ...args, title, status: args.status });
+    return args.json ? { card: created.card, created: true } : created;
+  },
+
   create(board, args) {
     const title = (args.title || "").trim();
     if (!title) throw new Error("create requires --title");
@@ -343,6 +364,7 @@ function usage() {
 
   node tracker.js seed [--force]                     create the board (.agents/tracker/board.json)
   node tracker.js list [--status S] [--assignee A] [--open] [--json]
+  node tracker.js ensure --session <id> [--title T] [--json]   idempotent session floor ticket
   node tracker.js show <TSK-n|id> [--json]
   node tracker.js create --title "T" [--description "D"] [--status S] [--assignee A]
   node tracker.js update <key> [--title T] [--description D] [--status S] [--assignee A] [--note "..."]
