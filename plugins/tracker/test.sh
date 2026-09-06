@@ -4,13 +4,16 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# The script always sits NEXT to tracker.js — both in this repo
+# (plugins/tracker/) and when installed (e.g. .agents/tracker/).
+PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
 PORT="${TEST_PORT:-4899}"
 trap 'kill $SERVER_PID 2>/dev/null; rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/.agents/tracker"
-cp "$REPO_ROOT/plugins/tracker/tracker.js" "$TMP/.agents/tracker/"
-cp "$REPO_ROOT/plugins/tracker/board.html" "$TMP/.agents/tracker/"
+cp "$PLUGIN_DIR/tracker.js" "$TMP/.agents/tracker/"
+cp "$PLUGIN_DIR/board.html" "$TMP/.agents/tracker/"
 cd "$TMP"
 
 fail() { echo "FAIL: $1"; exit 1; }
